@@ -4,6 +4,7 @@ USER_HOME=/home/${user}
 PROJECT_ROOT=$USER_HOME/gpumetric
 COLLECTOR_ROOT=$USER_HOME/opentelemetry-operations-collector
 COLLECTOR_BIN=google-cloud-metrics-agent_linux_amd64
+COLLECTOR_PATH=/usr/local/bin/$COLLECTOR_BIN
 OTEL_CONFIG=$USER_HOME/otel-config.yaml
 
 /opt/deeplearning/install-driver.sh
@@ -19,7 +20,7 @@ cd /home/${user} && git clone https://github.com/GoogleCloudPlatform/opentelemet
 chown -R ${user}:${user} $COLLECTOR_ROOT
 cd $COLLECTOR_ROOT
 GOCACHE=/tmp GOPATH=/home/${user}/go make build >$USER_HOME/build.log 2>&1
-mv $COLLECTOR_ROOT/bin/$COLLECTOR_BIN /usr/local/bin/$COLLECTOR_BIN
+mv $COLLECTOR_ROOT/bin/$COLLECTOR_BIN $COLLECTOR_PATH
 
 cat <<EOF > /home/${user}/otel-config.yaml
 # The original version is here:
@@ -306,4 +307,4 @@ service:
 EOF
 
 cd $USER_HOME
-$COLLECTOR_BIN --conifg $OTEL_CONFIG
+sudo $COLLECTOR_PATH --conifg $OTEL_CONFIG

@@ -115,6 +115,6 @@ resource "google_compute_instance" "gpu_instance_creation" {
     depends_on = ["google_compute_firewall.gpu-instance-ssh"]
 
     service_account {
-        scopes = ["logging-write", "monitoring-write"]
+        scopes = ["compute-rw", "logging-write", "monitoring"]
     }
 }
