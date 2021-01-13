@@ -36,7 +36,11 @@ var (
 )
 
 func main() {
+	logger.Info().Msg("starting GPU metrics server")
 	d, err := newGPUDevice()
+	if err != nil {
+		logger.Fatal().Msgf("failed to get new GPU device instance: %v", err)
+	}
 
 	ctx := context.Background()
 	exporter, err := otlp.NewExporter(ctx, otlp.WithInsecure())
