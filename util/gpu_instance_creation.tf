@@ -12,6 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+##########################################################
+#
+# variables
+#
+##########################################################
+
 variable "project_id" {
     type = string
     description = "Google Cloud Platform project ID"
@@ -20,6 +26,7 @@ variable "project_id" {
 variable "instance_name" {
     type = string
     description = "Google Compute Engine instance name"
+    default = "gpu-test-1"
 }
 
 variable "region" {
@@ -37,7 +44,14 @@ variable "zone" {
 variable "user" {
     type = string
     description = "username for SSH"
+    default = "demo"
 }
+
+##########################################################
+#
+# resources
+#
+##########################################################
 
 provider "google" {
     project = var.project_id
@@ -96,15 +110,7 @@ resource "google_compute_instance" "gpu_instance_creation" {
         sshKeys = "${var.user}:${tls_private_key.ssh-key.public_key_openssh}"
     }
 
-    metadata_startup_script = <<EOT
-/opt/deeplearning/install-driver.sh
-apt-get install -y libnvidia-container-dev libnvidia-container1
-wget -c https://storage.googleapis.com/golang/go1.15.6.linux-amd64.tar.gz -O - | tar xz -C /opt
-echo export PATH=/opt/go/bin:\$PATH >> /etc/profile.d/golang.sh
-chmod +x /etc/profile.d/golang.sh
-su - demo && cd /home/demo && git clone https://github.com/ymotongpoo/gpumetric.git
-chwon -R demo:demo /home/demo/gpumetric
-EOT
+    metadata_startup_script = templatefile("./startup.sh", {user = var.user})
 
     depends_on = ["google_compute_firewall.gpu-instance-ssh"]
 
