@@ -5,6 +5,8 @@ PROJECT_ROOT=$USER_HOME/gpumetric
 COLLECTOR_ROOT=$USER_HOME/opentelemetry-operations-collector
 COLLECTOR_BIN=google-cloud-metrics-agent_linux_amd64
 COLLECTOR_PATH=/usr/local/bin/$COLLECTOR_BIN
+METRIC_BIN=gpumetric
+METRIC_PATH=/usr/local/bin/$METRIC_BIN
 OTEL_CONFIG=$USER_HOME/otel-config.yaml
 
 /opt/deeplearning/install-driver.sh
@@ -13,13 +15,21 @@ wget -c https://storage.googleapis.com/golang/go1.15.6.linux-amd64.tar.gz -O - |
 echo export PATH=/opt/go/bin:\$PATH >> /etc/profile.d/golang.sh
 chmod +x /etc/profile.d/golang.sh
 export PATH=/opt/go/bin:$PATH
-su - ${user} && cd $USER_HOME && git clone https://github.com/ymotongpoo/gpumetric.git
-chown -R ${user}:${user} $PROJECT_ROOT
+export GOCACHE=/tmp
+export GOPATH=/home/${user}/go
 
-cd /home/${user} && git clone https://github.com/GoogleCloudPlatform/opentelemetry-operations-collector.git
+cd $USER_HOME
+su - ${user} -c "git clone https://github.com/ymotongpoo/gpumetric.git"
+chown -R ${user}:${user} $PROJECT_ROOT
+cd $PROJECT_ROOT
+go build -o $METRIC_BIN >$USER_HOME/metric-build.log 2>&1
+mv $METRIC_BIN $METRIC_PATH
+
+cd $USER_HOME
+su - ${user} -c "git clone https://github.com/GoogleCloudPlatform/opentelemetry-operations-collector.git"
 chown -R ${user}:${user} $COLLECTOR_ROOT
 cd $COLLECTOR_ROOT
-GOCACHE=/tmp GOPATH=/home/${user}/go make build >$USER_HOME/build.log 2>&1
+make build >$USER_HOME/collector-build.log 2>&1
 mv $COLLECTOR_ROOT/bin/$COLLECTOR_BIN $COLLECTOR_PATH
 
 cat <<EOF > /home/${user}/otel-config.yaml
@@ -307,4 +317,5 @@ service:
 EOF
 
 cd $USER_HOME
-sudo $COLLECTOR_PATH --conifg $OTEL_CONFIG
+nohup $COLLECTOR_PATH --config $OTEL_CONFIG &
+nohup $METRIC_PATH &
