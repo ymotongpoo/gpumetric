@@ -15,19 +15,114 @@
 package main
 
 import (
+	"context"
+	"time"
+
 	"github.com/NVIDIA/gpu-monitoring-tools/bindings/go/nvml"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/otlp"
+	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/sdk/metric/controller/push"
+	"go.opentelemetry.io/otel/sdk/metric/processor/basic"
+	"go.opentelemetry.io/otel/sdk/metric/selector/simple"
 )
 
-func init() {
-	if err := nvml.Init(); err != nil {
-		logger.Error().Msgf("Failed to initialize NVML: %v", err)
+var (
+	temperature           metric.Int64ValueRecorder
+	powerUsage            metric.Int64ValueRecorder
+	pcieThroughputRxBytes metric.Int64ValueRecorder
+	pcieThroughputTxBytes metric.Int64ValueRecorder
+	pcieThroughputCount   metric.Int64ValueRecorder
+)
+
+func main() {
+	d, err := newGPUDevice()
+
+	ctx := context.Background()
+	exporter, err := otlp.NewExporter(ctx, otlp.WithInsecure())
+	if err != nil {
+		logger.Fatal().Msgf("failed to initialize OTLP exporter: %v", err)
+	}
+	defer func(ctx context.Context) {
+		err := exporter.Shutdown(ctx)
+		if err != nil {
+			logger.Fatal().Msgf("failed to shutdown OTLP exporter: %v", err)
+		}
+	}(ctx)
+
+	pusher := push.New(
+		basic.New(simple.NewWithExactDistribution(), exporter),
+		exporter,
+		push.WithPeriod(1*time.Minute),
+	)
+
+	mp := pusher.MeterProvider()
+	otel.SetMeterProvider(mp)
+	pusher.Start()
+	defer pusher.Stop()
+
+	meter := mp.Meter("google-cloud-metrics-agent/gpumetric")
+	temperature = metric.Must(meter).NewInt64ValueRecorder("temperature")
+	powerUsage = metric.Must(meter).NewInt64ValueRecorder("powerusage")
+	pcieThroughputRxBytes = metric.Must(meter).NewInt64ValueRecorder("throughput.rx")
+	pcieThroughputTxBytes = metric.Must(meter).NewInt64ValueRecorder("throughput.tx")
+	pcieThroughputCount = metric.Must(meter).NewInt64ValueRecorder("throughput.count")
+
+	d.startScraping(ctx)
+	defer d.stopScraping()
+}
+
+type device struct {
+	d              *nvml.Device
+	scrapeInterval time.Duration
+	done           chan struct{}
+}
+
+func newGPUDevice() (*device, error) {
+	err := nvml.Init()
+	if err != nil {
+		return nil, err
+	}
+	d, err := nvml.NewDeviceLite(uint(0))
+	if err != nil {
+		return nil, err
+	}
+	return &device{
+		d:              d,
+		scrapeInterval: 5 * time.Second,
+		done:           make(chan struct{}),
+	}, nil
+}
+
+func (d *device) startScraping(ctx context.Context) {
+	ticker := time.NewTicker(d.scrapeInterval)
+	for {
+		select {
+		case <-ticker.C:
+			d.scrapeAndExport(ctx)
+		case <-d.done:
+			return
+		}
 	}
 }
 
-func main() {
-	defer func() {
-		if err := nvml.Shutdown(); err != nil {
-			logger.Error().Msgf("Failed to shutdown NVML: %v", err)
-		}
-	}()
+func (d *device) stopScraping() {
+	err := nvml.Shutdown()
+	if err != nil {
+		logger.Fatal().Msgf("failed to shutdown NVML: %v", err)
+		return
+	}
+	close(d.done)
+}
+
+func (d *device) scrapeAndExport(ctx context.Context) {
+	status, err := d.d.Status()
+	if err != nil {
+		logger.Error().Msgf("error on getting device status: %v", err)
+	}
+	temperature.Record(ctx, int64(*status.Temperature))
+	powerUsage.Record(ctx, int64(*status.Power))
+	pcieThroughputRxBytes.Record(ctx, int64(*status.PCI.Throughput.RX))
+	pcieThroughputTxBytes.Record(ctx, int64(*status.PCI.Throughput.TX))
+	pcieThroughputCount.Record(ctx, int64(*status.PCI.BAR1Used))
 }
