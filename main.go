@@ -40,7 +40,7 @@ func main() {
 	driver := otlphttp.NewDriver(
 		otlphttp.WithInsecure(),
 	)
-	exporter, err := otlp.NewExporter(ctx, driver, nil)
+	exporter, err := otlp.NewExporter(ctx, driver)
 	if err != nil {
 		logger.Fatal().Msgf("failed to initialize OTLP exporter: %v", err)
 	}
