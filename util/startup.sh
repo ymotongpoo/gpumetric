@@ -48,7 +48,6 @@ receivers:
       swap:
   otlp:
     protocols:
-      grpc:
       http:
 
 processors:
