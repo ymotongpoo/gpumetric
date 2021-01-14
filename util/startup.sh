@@ -312,7 +312,7 @@ service:
     metrics:
       receivers: [hostmetrics, otlp]
       processors: [agentmetrics/host, metricstransform/host, filter/host, resourcedetection]
-      exporters: [stackdriver]
+      exporters: [stackdriver, logging]
 EOF
 
 cd $USER_HOME
