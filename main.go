@@ -21,29 +21,26 @@ import (
 	"github.com/NVIDIA/gpu-monitoring-tools/bindings/go/nvml"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp"
+	"go.opentelemetry.io/otel/exporters/otlp/otlphttp"
+	"go.opentelemetry.io/otel/label"
 	"go.opentelemetry.io/otel/metric"
-	"go.opentelemetry.io/otel/sdk/metric/controller/push"
-	"go.opentelemetry.io/otel/sdk/metric/processor/basic"
+	controller "go.opentelemetry.io/otel/sdk/metric/controller/basic"
+	processor "go.opentelemetry.io/otel/sdk/metric/processor/basic"
 	"go.opentelemetry.io/otel/sdk/metric/selector/simple"
-)
-
-var (
-	temperature           metric.Int64ValueRecorder
-	powerUsage            metric.Int64ValueRecorder
-	pcieThroughputRxBytes metric.Int64ValueRecorder
-	pcieThroughputTxBytes metric.Int64ValueRecorder
-	pcieThroughputCount   metric.Int64ValueRecorder
 )
 
 func main() {
 	logger.Info().Msg("starting GPU metrics server")
-	d, err := newGPUDevice()
+	d, err := newGPUDevices()
 	if err != nil {
 		logger.Fatal().Msgf("failed to get new GPU device instance: %v", err)
 	}
 
 	ctx := context.Background()
-	exporter, err := otlp.NewExporter(ctx, otlp.WithInsecure())
+	driver := otlphttp.NewDriver(
+		otlphttp.WithInsecure(),
+	)
+	exporter, err := otlp.NewExporter(ctx, driver, nil)
 	if err != nil {
 		logger.Fatal().Msgf("failed to initialize OTLP exporter: %v", err)
 	}
@@ -54,51 +51,54 @@ func main() {
 		}
 	}(ctx)
 
-	pusher := push.New(
-		basic.New(simple.NewWithExactDistribution(), exporter),
-		exporter,
-		push.WithPeriod(1*time.Minute),
+	cont := controller.New(
+		processor.New(simple.NewWithExactDistribution(), exporter),
+		controller.WithPusher(exporter),
+		controller.WithCollectPeriod(2*time.Second),
 	)
 
-	mp := pusher.MeterProvider()
-	otel.SetMeterProvider(mp)
-	pusher.Start()
-	defer pusher.Stop()
-
-	meter := mp.Meter("google-cloud-metrics-agent/gpumetric")
-	temperature = metric.Must(meter).NewInt64ValueRecorder("temperature")
-	powerUsage = metric.Must(meter).NewInt64ValueRecorder("powerusage")
-	pcieThroughputRxBytes = metric.Must(meter).NewInt64ValueRecorder("throughput.rx")
-	pcieThroughputTxBytes = metric.Must(meter).NewInt64ValueRecorder("throughput.tx")
-	pcieThroughputCount = metric.Must(meter).NewInt64ValueRecorder("throughput.count")
+	otel.SetMeterProvider(cont.MeterProvider())
+	cont.Start(ctx)
+	defer cont.Stop(ctx)
 
 	d.startScraping(ctx)
 	defer d.stopScraping()
 }
 
-type device struct {
-	d              *nvml.Device
+type devices struct {
+	d              map[string]*nvml.Device
 	scrapeInterval time.Duration
 	done           chan struct{}
 }
 
-func newGPUDevice() (*device, error) {
+func newGPUDevices() (*devices, error) {
 	err := nvml.Init()
 	if err != nil {
 		return nil, err
 	}
-	d, err := nvml.NewDeviceLite(uint(0))
+
+	count, err := nvml.GetDeviceCount()
 	if err != nil {
 		return nil, err
 	}
-	return &device{
-		d:              d,
+	logger.Info().Msgf("found %v GPU devices", count)
+	gpuDevices := make(map[string]*nvml.Device)
+	for i := uint(0); i < count; i++ {
+		device, err := nvml.NewDevice(i)
+		if err != nil {
+			return nil, err
+		}
+		gpuDevices[device.UUID] = device
+	}
+
+	return &devices{
+		d:              gpuDevices,
 		scrapeInterval: 5 * time.Second,
 		done:           make(chan struct{}),
 	}, nil
 }
 
-func (d *device) startScraping(ctx context.Context) {
+func (d *devices) startScraping(ctx context.Context) {
 	ticker := time.NewTicker(d.scrapeInterval)
 	for {
 		select {
@@ -110,7 +110,7 @@ func (d *device) startScraping(ctx context.Context) {
 	}
 }
 
-func (d *device) stopScraping() {
+func (d *devices) stopScraping() {
 	err := nvml.Shutdown()
 	if err != nil {
 		logger.Fatal().Msgf("failed to shutdown NVML: %v", err)
@@ -119,14 +119,36 @@ func (d *device) stopScraping() {
 	close(d.done)
 }
 
-func (d *device) scrapeAndExport(ctx context.Context) {
-	status, err := d.d.Status()
-	if err != nil {
-		logger.Error().Msgf("error on getting device status: %v", err)
+func (d *devices) scrapeAndExport(ctx context.Context) {
+	for k, v := range d.d {
+		labels := []label.KeyValue{
+			label.String("device", k),
+		}
+		status, err := v.Status()
+		if err != nil {
+			logger.Error().Msgf("error on getting device status: %v", err)
+		}
+
+		// process defer properly
+		func() {
+			meter := otel.Meter("gpumetric-otlp")
+			temp := metric.Must(meter).NewInt64ValueRecorder("gputemperature").Bind(labels...)
+			defer temp.Unbind()
+			pu := metric.Must(meter).NewInt64ValueRecorder("gpupowerusage").Bind(labels...)
+			defer pu.Unbind()
+			pcieRx := metric.Must(meter).NewInt64ValueRecorder("throughput.rx").Bind(labels...)
+			defer pcieRx.Unbind()
+			pcieTx := metric.Must(meter).NewInt64ValueRecorder("throughput.tx").Bind(labels...)
+			defer pcieTx.Unbind()
+			pcieCount := metric.Must(meter).NewInt64ValueRecorder("throughput.count").Bind(labels...)
+			defer pcieCount.Unbind()
+
+			temp.Record(ctx, int64(*status.Temperature))
+			pu.Record(ctx, int64(*status.Power))
+			//TODO(ymotongpoo): the following part causes panic (#1)
+			//pcieRx.Record(ctx, int64(*status.PCI.Throughput.RX))
+			//pcieTx.Record(ctx, int64(*status.PCI.Throughput.TX))
+			//pcieCount.Record(ctx, int64(*status.PCI.BAR1Used))
+		}()
 	}
-	temperature.Record(ctx, int64(*status.Temperature))
-	powerUsage.Record(ctx, int64(*status.Power))
-	pcieThroughputRxBytes.Record(ctx, int64(*status.PCI.Throughput.RX))
-	pcieThroughputTxBytes.Record(ctx, int64(*status.PCI.Throughput.TX))
-	pcieThroughputCount.Record(ctx, int64(*status.PCI.BAR1Used))
 }

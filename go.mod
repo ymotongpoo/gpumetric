@@ -51,7 +51,7 @@ replace k8s.io/sample-controller => k8s.io/sample-controller v0.18.12
 require (
 	github.com/NVIDIA/gpu-monitoring-tools v0.0.0-20201006233419-a544dbcaacb0
 	github.com/rs/zerolog v1.20.0
-	go.opentelemetry.io/otel v0.15.0
-	go.opentelemetry.io/otel/exporters/otlp v0.15.0
-	go.opentelemetry.io/otel/sdk v0.15.0
+	go.opentelemetry.io/otel v0.16.0
+	go.opentelemetry.io/otel/exporters/otlp v0.16.0
+	go.opentelemetry.io/otel/sdk v0.16.0
 )
