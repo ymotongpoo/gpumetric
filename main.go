@@ -39,6 +39,7 @@ func main() {
 	ctx := context.Background()
 	driver := otlphttp.NewDriver(
 		otlphttp.WithInsecure(),
+		otlphttp.WithEndpoint("localhost:55681"),
 	)
 	exporter, err := otlp.NewExporter(ctx, driver)
 	if err != nil {
