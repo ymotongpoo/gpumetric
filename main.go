@@ -99,7 +99,7 @@ func newGPUDevices() (*devices, error) {
 
 	return &devices{
 		d:              gpuDevices,
-		scrapeInterval: 5 * time.Second,
+		scrapeInterval: 1 * time.Minute,
 		done:           make(chan struct{}),
 	}, nil
 }
