@@ -306,6 +306,8 @@ exporters:
   stackdriver:
     metric:
       prefix: custom.googleapis.com/
+  logging:
+    loglevel: debug
 
 service:
   pipelines:
