@@ -29,6 +29,11 @@ import (
 	"go.opentelemetry.io/otel/sdk/metric/selector/simple"
 )
 
+var (
+	temp metric.Int64ValueRecorder
+	pu   metric.Int64ValueRecorder
+)
+
 func main() {
 	logger.Info().Msg("starting GPU metrics server")
 	d, err := newGPUDevices()
@@ -100,6 +105,10 @@ func newGPUDevices() (*devices, error) {
 }
 
 func (d *devices) startScraping(ctx context.Context) {
+	meter := otel.Meter("gpumetric-otlp")
+	temp = metric.Must(meter).NewInt64ValueRecorder("gputemperature")
+	pu = metric.Must(meter).NewInt64ValueRecorder("gpupowerusage")
+
 	ticker := time.NewTicker(d.scrapeInterval)
 	for {
 		select {
@@ -130,26 +139,8 @@ func (d *devices) scrapeAndExport(ctx context.Context) {
 			logger.Error().Msgf("error on getting device status: %v", err)
 		}
 
-		// process defer properly
-		func() {
-			meter := otel.Meter("gpumetric-otlp")
-			temp := metric.Must(meter).NewInt64ValueRecorder("gputemperature").Bind(labels...)
-			defer temp.Unbind()
-			pu := metric.Must(meter).NewInt64ValueRecorder("gpupowerusage").Bind(labels...)
-			defer pu.Unbind()
-			pcieRx := metric.Must(meter).NewInt64ValueRecorder("throughput.rx").Bind(labels...)
-			defer pcieRx.Unbind()
-			pcieTx := metric.Must(meter).NewInt64ValueRecorder("throughput.tx").Bind(labels...)
-			defer pcieTx.Unbind()
-			pcieCount := metric.Must(meter).NewInt64ValueRecorder("throughput.count").Bind(labels...)
-			defer pcieCount.Unbind()
-
-			temp.Record(ctx, int64(*status.Temperature))
-			pu.Record(ctx, int64(*status.Power))
-			//TODO(ymotongpoo): the following part causes panic (#1)
-			//pcieRx.Record(ctx, int64(*status.PCI.Throughput.RX))
-			//pcieTx.Record(ctx, int64(*status.PCI.Throughput.TX))
-			//pcieCount.Record(ctx, int64(*status.PCI.BAR1Used))
-		}()
+		temp.Record(ctx, int64(*status.Temperature), labels...)
+		pu.Record(ctx, int64(*status.Power), labels...)
+		//TODO(ymotongpoo): add section to record (#1)
 	}
 }
