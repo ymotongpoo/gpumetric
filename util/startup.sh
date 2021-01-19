@@ -19,7 +19,7 @@ export GOCACHE=/tmp
 export GOPATH=/home/${user}/go
 
 cd $USER_HOME
-su - ${user} -c "git clone https://github.com/ymotongpoo/gpumetric.git"
+su - ${user} -c "git clone -b issue/2 https://github.com/ymotongpoo/gpumetric.git"
 chown -R ${user}:${user} $PROJECT_ROOT
 cd $PROJECT_ROOT
 go build -o $METRIC_BIN >$USER_HOME/metric-build.log 2>&1

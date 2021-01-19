@@ -142,7 +142,9 @@ func newInt64ObserverCallback(ctx context.Context, ois map[string]*observedInt64
 func (d *devices) startScraping(ctx context.Context) {
 	meter := otel.Meter("gpumetric/basic")
 
-	for k, _ := range d.d {
+	tempObservers = make(map[string]*observedInt64)
+	puObservers = make(map[string]*observedInt64)
+	for k := range d.d {
 		tempObservers[k] = newObservedInt64(0)
 		puObservers[k] = newObservedInt64(0)
 	}
