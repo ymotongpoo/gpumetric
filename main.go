@@ -16,6 +16,7 @@ package main
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/NVIDIA/gpu-monitoring-tools/bindings/go/nvml"
@@ -27,11 +28,6 @@ import (
 	controller "go.opentelemetry.io/otel/sdk/metric/controller/basic"
 	processor "go.opentelemetry.io/otel/sdk/metric/processor/basic"
 	"go.opentelemetry.io/otel/sdk/metric/selector/simple"
-)
-
-var (
-	temp metric.Int64ValueRecorder
-	pu   metric.Int64ValueRecorder
 )
 
 func main() {
@@ -104,10 +100,58 @@ func newGPUDevices() (*devices, error) {
 	}, nil
 }
 
+var (
+	tempObservers map[string]*observedInt64
+	puObservers   map[string]*observedInt64
+	temp          metric.Int64ValueObserver
+	pu            metric.Int64ValueObserver
+)
+
+type observedInt64 struct {
+	mu sync.RWMutex
+	i  int64
+}
+
+func (oi *observedInt64) set(v int64) {
+	oi.mu.Lock()
+	defer oi.mu.Unlock()
+	oi.i = v
+}
+
+func (oi *observedInt64) get() int64 {
+	oi.mu.RLock()
+	defer oi.mu.RUnlock()
+	return oi.i
+}
+
+func newObservedInt64(v int64) *observedInt64 {
+	return &observedInt64{
+		i: v,
+	}
+}
+
+func newInt64ObserverCallback(ctx context.Context, ois map[string]*observedInt64) metric.Int64ObserverFunc {
+	return func(ctx context.Context, r metric.Int64ObserverResult) {
+		for k, v := range ois {
+			i := v.get()
+			r.Observe(i, label.String("device", k))
+		}
+	}
+}
+
 func (d *devices) startScraping(ctx context.Context) {
-	meter := otel.Meter("gpumetric-otlp")
-	temp = metric.Must(meter).NewInt64ValueRecorder("gpu/temperature")
-	pu = metric.Must(meter).NewInt64ValueRecorder("gpu/powerusage")
+	meter := otel.Meter("gpumetric/basic")
+
+	for k, _ := range d.d {
+		tempObservers[k] = newObservedInt64(0)
+		puObservers[k] = newObservedInt64(0)
+	}
+
+	tempCb := newInt64ObserverCallback(ctx, tempObservers)
+	puCb := newInt64ObserverCallback(ctx, puObservers)
+
+	temp = metric.Must(meter).NewInt64ValueObserver("gpu/temperature", tempCb)
+	pu = metric.Must(meter).NewInt64ValueObserver("gpu/powerusage", puCb)
 
 	ticker := time.NewTicker(d.scrapeInterval)
 	for {
@@ -131,16 +175,12 @@ func (d *devices) stopScraping() {
 
 func (d *devices) scrapeAndExport(ctx context.Context) {
 	for k, v := range d.d {
-		labels := []label.KeyValue{
-			label.String("device", k),
-		}
 		status, err := v.Status()
 		if err != nil {
 			logger.Error().Msgf("error on getting device status: %v", err)
 		}
 
-		temp.Record(ctx, int64(*status.Temperature), labels...)
-		pu.Record(ctx, int64(*status.Power), labels...)
-		//TODO(ymotongpoo): add section to record (#1)
+		tempObservers[k].set(int64(*status.Temperature))
+		puObservers[k].set(int64(*status.Power))
 	}
 }
