@@ -26,7 +26,7 @@ go build -o $METRIC_BIN >$USER_HOME/metric-build.log 2>&1
 mv $METRIC_BIN $METRIC_PATH
 
 cd $USER_HOME
-su - ${user} -c "git clone https://github.com/GoogleCloudPlatform/opentelemetry-operations-collector.git"
+su - ${user} -c "git clone -b update https://github.com/ymotongpoo/opentelemetry-operations-collector.git"
 chown -R ${user}:${user} $COLLECTOR_ROOT
 cd $COLLECTOR_ROOT
 make build >$USER_HOME/collector-build.log 2>&1
@@ -45,7 +45,7 @@ receivers:
       load:
       memory:
       network:
-      swap:
+      paging:
   otlp:
     protocols:
       http:
@@ -67,9 +67,8 @@ processors:
         match_type: strict
         metric_names:
           - system.network.dropped_packets
-          - system.swap.usage
           - system.filesystem.inodes.usage
-          - system.swap.page_faults
+          - system.paging.faults
 
   metricstransform/host:
     transforms:
@@ -248,23 +247,21 @@ processors:
           - action: update_label
             label: state
             new_label: tcp_state
-      # system.swap.paging_ops -> swap/io
-      - metric_name: system.swap.paging_ops
+      # system.paging.usage -> swap/bytes_used
+      - metric_name: system.paging.usage
         action: update
-        new_name: agent.googleapis.com/swap/io
+        new_name: agent.googleapis.com/swap/bytes_used
         operations:
-          # delete singular type dimension, retaining only direction
-          - action: aggregate_labels
-            label_set: [ direction ]
-            aggregation_type: sum
-      # system.swap.utilization -> swap/percent_used
-      - metric_name: system.swap.utilization
+          # change data type from int64 -> double
+          - action: toggle_scalar_data_type
+      # system.paging.utilization -> swap/percent_used
+      - metric_name: system.paging.utilization
         action: update
         new_name: agent.googleapis.com/swap/percent_used
         operations:
           # take sum over direction dimension, retaining only state
           - action: aggregate_labels
-            label_set: [ state ]
+            label_set: [ direction ]
             aggregation_type: sum
       # process.cpu.time -> processes/cpu_time
       - metric_name: process.cpu.time
@@ -320,3 +317,8 @@ EOF
 cd $USER_HOME
 nohup $COLLECTOR_PATH --config $OTEL_CONFIG &
 nohup $METRIC_PATH &
+
+touch done
+metric_id=$(ps aux | grep gpumetric | grep -v grep | tr -s ' ' ' ' | cut -d' ' -f2)
+collector_id=$(ps aux | grep google-cloud | grep -v grep | tr -s ' ' ' ' | cut -d' ' -f2)
+echo -e "gpumetric\t$metric_id\ncollector\t$collector_id" >> done

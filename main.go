@@ -106,8 +106,8 @@ func newGPUDevices() (*devices, error) {
 
 func (d *devices) startScraping(ctx context.Context) {
 	meter := otel.Meter("gpumetric-otlp")
-	temp = metric.Must(meter).NewInt64ValueRecorder("gputemperature")
-	pu = metric.Must(meter).NewInt64ValueRecorder("gpupowerusage")
+	temp = metric.Must(meter).NewInt64ValueRecorder("gpu/temperature")
+	pu = metric.Must(meter).NewInt64ValueRecorder("gpu/powerusage")
 
 	ticker := time.NewTicker(d.scrapeInterval)
 	for {
