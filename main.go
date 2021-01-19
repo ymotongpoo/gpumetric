@@ -95,7 +95,7 @@ func newGPUDevices() (*devices, error) {
 
 	return &devices{
 		d:              gpuDevices,
-		scrapeInterval: 1 * time.Minute,
+		scrapeInterval: 20 * time.Second,
 		done:           make(chan struct{}),
 	}, nil
 }
@@ -152,8 +152,12 @@ func (d *devices) startScraping(ctx context.Context) {
 	tempCb := newInt64ObserverCallback(ctx, tempObservers)
 	puCb := newInt64ObserverCallback(ctx, puObservers)
 
-	temp = metric.Must(meter).NewInt64ValueObserver("gpu/temperature", tempCb)
-	pu = metric.Must(meter).NewInt64ValueObserver("gpu/powerusage", puCb)
+	temp = metric.Must(meter).NewInt64ValueObserver("gpu/temperature", tempCb,
+		metric.WithDescription("GPU temperature"),
+		metric.WithUnit("C"))
+	pu = metric.Must(meter).NewInt64ValueObserver("gpu/powerusage", puCb,
+		metric.WithDescription("GPU power usage"),
+		metric.WithUnit("mW"))
 
 	ticker := time.NewTicker(d.scrapeInterval)
 	for {
