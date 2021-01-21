@@ -56,7 +56,6 @@ func main() {
 	cont := controller.New(
 		processor.New(simple.NewWithExactDistribution(), exporter),
 		controller.WithPusher(exporter),
-		controller.WithCollectPeriod(2*time.Second),
 	)
 
 	otel.SetMeterProvider(cont.MeterProvider())
