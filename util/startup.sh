@@ -19,14 +19,14 @@ export GOCACHE=/tmp
 export GOPATH=/home/${user}/go
 
 cd $USER_HOME
-su - ${user} -c "git clone -b issue/2 https://github.com/ymotongpoo/gpumetric.git"
+su - ${user} -c "git clone https://github.com/ymotongpoo/gpumetric.git"
 chown -R ${user}:${user} $PROJECT_ROOT
 cd $PROJECT_ROOT
 go build -o $METRIC_BIN >$USER_HOME/metric-build.log 2>&1
 mv $METRIC_BIN $METRIC_PATH
 
 cd $USER_HOME
-su - ${user} -c "git clone -b update https://github.com/ymotongpoo/opentelemetry-operations-collector.git"
+su - ${user} -c "git clone https://github.com/GoogleCloudPlatform/opentelemetry-operations-collector.git"
 chown -R ${user}:${user} $COLLECTOR_ROOT
 cd $COLLECTOR_ROOT
 make build >$USER_HOME/collector-build.log 2>&1
