@@ -114,10 +114,10 @@ func (d *devices) startScraping(ctx context.Context) {
 	pu = metric.Must(meter).NewInt64ValueRecorder("gpu/powerusage",
 		metric.WithDescription("GPU power usage"),
 		metric.WithUnit("mW"))
-	pcieRx = metric.Must(meter).NewFloat64ValueRecorder("gpu/throughput/rx",
+	pcieRx = metric.Must(meter).NewInt64ValueRecorder("gpu/throughput/rx",
 		metric.WithDescription("PCIe Throuput Rx"),
 		metric.WithUnit("bytes"))
-	pcieTx = metric.Must(meter).NewFloat64ValueRecorder("gpu/throughput/tx",
+	pcieTx = metric.Must(meter).NewInt64ValueRecorder("gpu/throughput/tx",
 		metric.WithDescription("PCIe Throuput Tx"),
 		metric.WithUnit("bytes"))
 
