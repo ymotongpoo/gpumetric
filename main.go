@@ -99,27 +99,19 @@ func newGPUDevices() (*devices, error) {
 }
 
 var (
-	temp   metric.Int64ValueRecorder
-	pu     metric.Int64ValueRecorder
-	pcieRx metric.Int64ValueRecorder
-	pcieTx metric.Int64ValueRecorder
+	temp    metric.Int64ValueRecorder
+	pu      metric.Int64ValueRecorder
+	memu    metric.Int64ValueRecorder
+	memf    metric.Int64ValueRecorder
+	gpuUtil metric.Int64ValueRecorder
+	memUtil metric.Int64ValueRecorder
+	encUtil metric.Int64ValueRecorder
+	decUtil metric.Int64ValueRecorder
 )
 
 func (d *devices) startScraping(ctx context.Context) {
 	meter := otel.Meter("gpumetric/basic")
-
-	temp = metric.Must(meter).NewInt64ValueRecorder("gpu/temperature",
-		metric.WithDescription("GPU temperature"),
-		metric.WithUnit("C"))
-	pu = metric.Must(meter).NewInt64ValueRecorder("gpu/powerusage",
-		metric.WithDescription("GPU power usage"),
-		metric.WithUnit("mW"))
-	pcieRx = metric.Must(meter).NewInt64ValueRecorder("gpu/throughput/rx",
-		metric.WithDescription("PCIe Throuput Rx"),
-		metric.WithUnit("bytes"))
-	pcieTx = metric.Must(meter).NewInt64ValueRecorder("gpu/throughput/tx",
-		metric.WithDescription("PCIe Throuput Tx"),
-		metric.WithUnit("bytes"))
+	initValueRecorders(meter)
 
 	ticker := time.NewTicker(d.scrapeInterval)
 	for {
@@ -142,18 +134,53 @@ func (d *devices) stopScraping() {
 }
 
 func (d *devices) scrapeAndExport(ctx context.Context) {
-	for k, v := range d.d {
+	for uuid, device := range d.d {
 		labels := []label.KeyValue{
-			{"device", label.StringValue(k)},
+			label.String("devide", uuid),
 		}
-		status, err := v.Status()
+		status, err := device.Status()
 		if err != nil {
 			logger.Error().Msgf("error on getting device status: %v", err)
 		}
 
-		temp.Record(ctx, int64(*status.Temperature), labels...)
-		pu.Record(ctx, int64(*status.Power), labels...)
-		pcieRx.Record(ctx, int64(*status.PCI.Throughput.RX))
-		pcieTx.Record(ctx, int64(*status.PCI.Throughput.TX))
+		recordValue(ctx, status, labels)
 	}
+}
+
+func initValueRecorders(meter metric.Meter) {
+	temp = metric.Must(meter).NewInt64ValueRecorder("gpu/temperature",
+		metric.WithDescription("GPU temperature"),
+		metric.WithUnit("C"))
+	pu = metric.Must(meter).NewInt64ValueRecorder("gpu/power/usage",
+		metric.WithDescription("GPU power usage"),
+		metric.WithUnit("mW"))
+	memu = metric.Must(meter).NewInt64ValueRecorder("gpu/memory/usage",
+		metric.WithDescription("GPU memory usage"),
+		metric.WithUnit("MiB"))
+	memf = metric.Must(meter).NewInt64ValueRecorder("gpu/memory/free",
+		metric.WithDescription("GPU memory free size"),
+		metric.WithUnit("MiB"))
+	gpuUtil = metric.Must(meter).NewInt64ValueRecorder("gpu/percent_used",
+		metric.WithDescription("GPU utilization"),
+		metric.WithUnit("%"))
+	memUtil = metric.Must(meter).NewInt64ValueRecorder("gpu/memory/percent_used",
+		metric.WithDescription("GPU Memory utilization"),
+		metric.WithUnit("%"))
+	decUtil = metric.Must(meter).NewInt64ValueRecorder("gpu/decoder/utilization",
+		metric.WithDescription("The current utilization and sampling size in microseconds for the Decoder"),
+		metric.WithUnit("ms"))
+	encUtil = metric.Must(meter).NewInt64ValueRecorder("gpu/encoder/utilization",
+		metric.WithDescription("The current utilization and sampling size in microseconds for the Encoder"),
+		metric.WithUnit("ms"))
+}
+
+func recordValue(ctx context.Context, status *nvml.DeviceStatus, labels []label.KeyValue) {
+	temp.Record(ctx, int64(*status.Temperature), labels...)
+	pu.Record(ctx, int64(*status.Power), labels...)
+	memu.Record(ctx, int64(*status.Memory.Global.Used), labels...)
+	memf.Record(ctx, int64(*status.Memory.Global.Free), labels...)
+	gpuUtil.Record(ctx, int64(*status.Utilization.GPU), labels...)
+	memUtil.Record(ctx, int64(*status.Utilization.Memory), labels...)
+	decUtil.Record(ctx, int64(*status.Utilization.Decoder), labels...)
+	encUtil.Record(ctx, int64(*status.Utilization.Encoder), labels...)
 }
